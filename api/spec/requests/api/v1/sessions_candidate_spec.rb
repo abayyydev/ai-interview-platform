@@ -108,5 +108,42 @@ RSpec.describe 'Candidate Session API', type: :request do
         expect(response).to have_http_status(:not_found)
       end
     end
+
+    context 'when the session has already ended' do
+      before do
+        Current.using(tenant_id: organization.id) do
+          session_record.update!(status: 'ended', end_reason: 'manual_candidate', ended_at: Time.current, consented_at: nil)
+        end
+      end
+
+      it 'rejects consent with 422 Unprocessable Entity and does not update consent fields' do
+        post "/api/v1/sessions/#{session_record.invite_token}/consent",
+             params: { consent: { consent_version: 'v1.0-2026' } },
+             as: :json
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        json = JSON.parse(response.body)
+        expect(json['error']).to match(/already ended/i)
+
+        session_record.reload
+        expect(session_record.consented_at).to be_nil
+      end
+    end
+
+    context 'when candidate calls consent repeatedly while active (idempotent)' do
+      it 'accepts repeat calls and updates the timestamp' do
+        post "/api/v1/sessions/#{session_record.invite_token}/consent",
+             params: { consent: { consent_version: 'v1.0-2026' } },
+             as: :json
+        expect(response).to have_http_status(:ok)
+
+        post "/api/v1/sessions/#{session_record.invite_token}/consent",
+             params: { consent: { consent_version: 'v1.1-2026' } },
+             as: :json
+        expect(response).to have_http_status(:ok)
+        session_record.reload
+        expect(session_record.consent_version).to eq('v1.1-2026')
+      end
+    end
   end
 end

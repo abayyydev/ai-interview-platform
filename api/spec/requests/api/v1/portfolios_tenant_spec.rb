@@ -73,9 +73,55 @@ RSpec.describe 'Portfolio Tenant Isolation (IDOR Protection)', type: :request do
     )
   end
 
+  let!(:vacancy_beta) do
+    Current.using(tenant_id: org_beta.id) do
+      Vacancy.create!(role_title: 'Beta Backend Engineer', created_by: user_beta.id)
+    end
+  end
+
   describe 'Cross-Tenant Access Restrictions' do
+    it 'denies Org Alpha assessor from viewing Org Beta session portfolio (returns 404)' do
+      get "/api/v1/sessions/#{session_beta.id}/portfolio",
+          headers: { 'Authorization' => "Bearer #{token_alpha}" }
+
+      expect(response).to have_http_status(:not_found)
+      json = JSON.parse(response.body)
+      expect(json['error']).to match(/Session not found/i)
+    end
+
     it 'denies Org Alpha assessor from exporting Org Beta portfolio (returns 404)' do
       get "/api/v1/portfolios/#{portfolio_beta.id}/export",
+          headers: { 'Authorization' => "Bearer #{token_alpha}" }
+
+      expect(response).to have_http_status(:not_found)
+      json = JSON.parse(response.body)
+      expect(json['error']).to match(/Portfolio not found/i)
+    end
+
+    it 'denies Org Alpha assessor from generating fit/gap on Org Beta portfolio (returns 404)' do
+      post "/api/v1/portfolios/#{portfolio_beta.id}/fitgap",
+           params: { vacancy_id: vacancy_beta.id },
+           headers: { 'Authorization' => "Bearer #{token_alpha}" },
+           as: :json
+
+      expect(response).to have_http_status(:not_found)
+      json = JSON.parse(response.body)
+      expect(json['error']).to match(/Portfolio not found/i)
+    end
+
+    it 'denies Org Alpha assessor from regenerating fit/gap on Org Beta portfolio (returns 404)' do
+      post "/api/v1/portfolios/#{portfolio_beta.id}/regenerate_fitgap",
+           params: { vacancy_id: vacancy_beta.id },
+           headers: { 'Authorization' => "Bearer #{token_alpha}" },
+           as: :json
+
+      expect(response).to have_http_status(:not_found)
+      json = JSON.parse(response.body)
+      expect(json['error']).to match(/Portfolio not found/i)
+    end
+
+    it 'denies Org Alpha assessor from viewing fit/gap report on Org Beta portfolio (returns 404)' do
+      get "/api/v1/portfolios/#{portfolio_beta.id}/fitgap/#{vacancy_beta.id}",
           headers: { 'Authorization' => "Bearer #{token_alpha}" }
 
       expect(response).to have_http_status(:not_found)

@@ -12,8 +12,8 @@ Vertical slice **"Candidate Onboarding Resilience & Honest Failure Handling"** t
 - **GAP-01 (Invite URL Port Mismatch — P0)**: `Session#invite_url` kini memprioritaskan konfigurasi `FRONTEND_URL` (fallback ke `http://localhost:5173` di development) alih-alih port backend Rails (3001), memulihkan akses 100% kandidat ke antarmuka wawancara.
 - **GAP-02 (Deceptive False Success State — P0)**: Menghapus total baris `.catch(() => setInterviewState("complete"))` pada `InterviewPage.tsx`. Menggantinya dengan Finite State Machine (FSM) yang membedakan secara jujur antara `invalid_token` (404), `network_error` (disertai tombol retry aman), `session_expired`, `consent_pending`, `hardware_check`, dan `complete` (hanya jika terkonfirmasi `ended` secara sah dari database).
 - **GAP-03 (Privacy Notice & Consent Tracking UU PDP No. 27/2022 — P1)**: Menambahkan skema migrasi `consented_at` dan `consent_version` pada tabel `sessions`, endpoint `POST /api/v1/sessions/:token/consent`, komponen antarmuka *Persetujuan Pemrosesan Data Pribadi*, serta gatekeeper sisi server pada `AudioWebSocketMiddleware` untuk menolak koneksi audio jika persetujuan belum tercatat.
-- **GAP-04 (Cross-Tenant IDOR Protection — P1)**: Menutup celah otorisasi pada `PortfoliosController` dan `PortfolioSkillsController` dengan membatasi query melalui relasi tenant `joins(:session).where(sessions: { tenant_id: current_tenant_id })`. Akses lintas tenant ditolak dengan HTTP 404.
-- **GAP-07 (Automated Regression Testing & Tooling — P1)**: Menginisialisasi RSpec 6 di backend (12/12 specs PASS) dan Vitest di frontend (4/4 tests PASS). Menjalankan Seeded Fault Test yang membuktikan tes gagal menangkap regresi secara deterministik.
+- **GAP-04 (Cross-Tenant IDOR Protection — P1)**: Menutup celah otorisasi pada seluruh aksi `PortfoliosController` (`show`, `export`, `regenerate_fitgap`, `fitgap`, `show_fitgap`) dan `PortfolioSkillsController` (`override`) dengan membatasi query melalui relasi tenant `joins(:session).where(sessions: { tenant_id: current_tenant_id })`. Akses lintas tenant ditolak dengan HTTP 404.
+- **GAP-07 (Automated Regression Testing & Tooling — P1)**: Menginisialisasi RSpec 6 di backend (18/18 specs PASS mencakup model, candidate onboarding, consent rejection on ended sessions, dan comprehensive cross-tenant IDOR) dan Vitest di frontend (4/4 tests PASS). Menjalankan Seeded Fault Test yang membuktikan tes gagal menangkap regresi secara deterministik.
 - **GAP-08 (Documentation Port Fix — P3)**: Memperbarui `web/.env.example` agar merujuk ke port default Rails 3001.
 
 ---
@@ -29,13 +29,14 @@ Vertical slice **"Candidate Onboarding Resilience & Honest Failure Handling"** t
 3. **`api/app/controllers/api/v1/sessions_controller.rb`**:
    - Memperbarui `candidate_info` agar menyertakan status `has_consented`, `consented_at`, dan `candidate_name`.
    - Menambahkan action `consent` (`POST /sessions/:token/consent`) menggunakan `Session.unscoped.find_by` untuk mencatat waktu persetujuan kandidat tanpa hambatan multi-tenant filter.
+   - Menambahkan validasi penolakan consent pada sesi yang telah berakhir (`return json_error("Session has already ended", :unprocessable_entity) if session.ended?`).
    - Menambahkan `:consent` ke daftar pengecualian autentikasi token JWT assessor (`except: %i[candidate_info audio_complete consent]`).
 4. **`api/config/routes.rb`**:
    Mendaftarkan rute `post 'sessions/:token/consent', to: 'sessions#consent'`.
 5. **`api/app/controllers/concerns/response.rb`**:
    Memperbarui helper `json_error` agar menyertakan kunci `error: message` bersamaan dengan array `errors:` untuk kompatibilitas multi-klien frontend.
 6. **`api/app/controllers/api/v1/portfolios_controller.rb`**:
-   Menerapkan relational scoping pada `set_portfolio` melalui `Portfolio.joins(:session).where(sessions: { tenant_id: current_tenant_id })` untuk mencegah eksfiltrasi portofolio antar-organisasi (GAP-04).
+   Menerapkan relational scoping pada `set_portfolio` melalui `Portfolio.joins(:session).where(sessions: { tenant_id: current_tenant_id })` dan menerapkannya pada seluruh aksi: `show`, `export`, `regenerate_fitgap`, `fitgap`, dan `show_fitgap` untuk mencegah eksfiltrasi portofolio antar-organisasi (GAP-04).
 7. **`api/app/controllers/api/v1/portfolio_skills_controller.rb`**:
    Menerapkan relational scoping pada `set_portfolio_skill` melalui `PortfolioSkill.joins(portfolio: :session).where(sessions: { tenant_id: current_tenant_id })` untuk mencegah override skill antar-organisasi (GAP-04).
 8. **`api/app/channels/audio_websocket_middleware.rb`**:
@@ -107,13 +108,17 @@ Vertical slice **"Candidate Onboarding Resilience & Honest Failure Handling"** t
 - **Perintah**: `bundle exec rspec`
 - **Hasil Eksekusi**:
   ```text
-  Randomized with seed 17499
-  ............
+  Randomized with seed 45215
+  ..................
 
-  Finished in 4 minutes 1.9 seconds (files took 11.07 seconds to load)
-  12 examples, 0 failures
+  Finished in 4 minutes 8.7 seconds (files took 10.2 seconds to load)
+  18 examples, 0 failures
   ```
-- **Status: 12/12 Specs Lulus (100% PASS)**
+- **Rincian Suite**:
+  - `spec/models/session_spec.rb`: 5 examples (resolusi `invite_url` port 5173, trailing slash, token uniqueness).
+  - `spec/requests/api/v1/sessions_candidate_spec.rb`: 7 examples (candidate info, 404 on invalid token, 200 on ended session status, consent recording, 404 on invalid consent token, 422 rejection on ended session, idempotent repeat consent).
+  - `spec/requests/api/v1/portfolios_tenant_spec.rb`: 6 examples (404 rejection on show, export, fitgap, regenerate_fitgap, show_fitgap, and skill override across tenants).
+- **Status: 18/18 Specs Lulus (100% PASS)**
 
 ### B. Frontend Test Suite (Vitest 5)
 - **Perintah**: `npm.cmd test`
@@ -121,11 +126,11 @@ Vertical slice **"Candidate Onboarding Resilience & Honest Failure Handling"** t
   ```text
    RUN  v5.0.5 A:/ai-interview-platform/web
 
-   ✓ src/__tests__/InterviewPage.test.tsx (4 tests) 342ms
+   ✓ src/__tests__/InterviewPage.test.tsx (4 tests) 312ms
 
    Test Files  1 passed (1)
         Tests  4 passed (4)
-     Duration  38.50s
+     Duration  40.85s
   ```
 - **Status: 4/4 Tests Lulus (100% PASS)**
 
@@ -142,7 +147,7 @@ Vertical slice **"Candidate Onboarding Resilience & Honest Failure Handling"** t
   dist/assets/vendor-misc-BDVdIyKs.js   117.72 kB │ gzip: 41.55 kB
   dist/assets/vendor-react-D3w9ihCe.js  181.45 kB │ gzip: 59.79 kB
   dist/assets/index-BftiBYE2.js         188.88 kB │ gzip: 53.91 kB
-  ✓ built in 17.89s
+  ✓ built in 15.88s
   ```
 - **Status: 0 Type Errors, 0 Build Errors**
 
@@ -160,7 +165,7 @@ Pengujian regresi terkontrol dieksekusi pada backend dan frontend untuk membukti
 ### B. Backend Seeded Fault (GAP-04)
 - **Injeksi Kesalahan**: Melepaskan tenant filter di `set_portfolio` menjadi `@portfolio = Portfolio.find(params[:id])`.
 - **Hasil Test Runner (`bundle exec rspec spec/requests/api/v1/portfolios_tenant_spec.rb`)**: Gagal (**RED**) dengan pesan `expected the response to have a not_found status code (404) but it was 200`.
-- **Pemulihan**: Kode dikembalikan ke scoping relasional $\rightarrow$ Lulus (**GREEN**, 2/2 pass).
+- **Pemulihan**: Kode dikembalikan ke scoping relasional $\rightarrow$ Lulus (**GREEN**, 6/6 pass).
 
 ---
 
@@ -170,9 +175,9 @@ Pengujian regresi terkontrol dieksekusi pada backend dan frontend untuk membukti
 |---|---|---|---|
 | **AC-01** | **Resolusi & Validasi URL Undangan** | **TERPENUHI (PASS)** | RSpec `session_spec.rb` memverifikasi `invite_url` menggunakan `FRONTEND_URL` port 5173. Browser membuka link tanpa 404 Rails. |
 | **AC-02** | **Kejujuran Penanganan Error & FSM** | **TERPENUHI (PASS)** | Vitest `InterviewPage.test.tsx` memverifikasi 404 menampilkan "Link Tidak Ditemukan", error jaringan menyediakan "Coba Lagi", dan status complete dibatasi hanya untuk sesi `ended`. |
-| **AC-03** | **Kepatuhan Privasi Data & Gating Audio** | **TERPENUHI (PASS)** | Migrasi database mencatat `consented_at`. Browser memverifikasi tombol disabled sebelum checkbox dicentang. `AudioWebSocketMiddleware` menolak audio jika belum consent. |
-| **AC-04** | **Isolasi Keamanan Multi-Tenant (IDOR)** | **TERPENUHI (PASS)** | RSpec `portfolios_tenant_spec.rb` membuktikan Assessor Org Alpha ditolak (HTTP 404) saat mencoba export portofolio atau override skill Org Beta. |
-| **AC-05** | **Jaminan Mutu Pengujian & Seeded Fault** | **TERPENUHI (PASS)** | 12/12 RSpec specs lulus, 4/4 Vitest tests lulus, frontend build 0 error, dan seeded fault test membuktikan deteksi kegagalan regresi secara deterministik. |
+| **AC-03** | **Kepatuhan Privasi Data & Gating Audio** | **TERPENUHI (PASS)** | Migrasi database mencatat `consented_at`. Endpoint menolak consent jika sesi sudah ended. `AudioWebSocketMiddleware` menolak audio jika belum consent. |
+| **AC-04** | **Isolasi Keamanan Multi-Tenant (IDOR)** | **TERPENUHI (PASS)** | RSpec `portfolios_tenant_spec.rb` membuktikan Assessor Org Alpha ditolak (HTTP 404) saat mencoba show, export, fitgap, regenerate_fitgap, show_fitgap, maupun override skill Org Beta. |
+| **AC-05** | **Jaminan Mutu Pengujian & Seeded Fault** | **TERPENUHI (PASS)** | 18/18 RSpec specs lulus, 4/4 Vitest tests lulus, frontend build 0 error, dan seeded fault test membuktikan deteksi kegagalan regresi secara deterministik. |
 
 ---
 
@@ -180,11 +185,11 @@ Pengujian regresi terkontrol dieksekusi pada backend dan frontend untuk membukti
 
 ### A. Keputusan Arsitektur Kunci
 1. **Finite State Machine (FSM) Terbuka vs Boolean Flags**:
-   Menghindari kekacauan *conditional rendering* dengan membagi alur onboarding menjadi 8 state eksplisit: `loading`, `invalid_token`, `network_error`, `session_expired`, `consent_pending`, `hardware_check`, `ready`, `in_interview`, `complete`.
+   Menghindari kekacauan *conditional rendering* dengan membagi alur onboarding menjadi **9 state eksplisit**: `loading`, `invalid_token`, `network_error`, `session_expired`, `consent_pending`, `hardware_check`, `ready`, `in_interview`, `complete`.
 2. **Pertahanan Berlapis (*Defense-in-Depth*) untuk UU PDP**:
-   Persetujuan data biometrik suara tidak hanya dicek di frontend (checkbox & disabled button), tetapi dijamin oleh backend melalui penolakan transmisi audio pada level Rack WebSocket middleware jika `consented_at` kosong.
+   Persetujuan data biometrik suara tidak hanya dicek di frontend (checkbox & disabled button), tetapi dijamin oleh backend melalui penolakan transmisi audio pada level Rack WebSocket middleware jika `consented_at` kosong, serta penolakan consent baru jika status sesi telah berakhir.
 3. **Relational Tenant Scoping vs Column Checking**:
-   Tabel `portfolios` tidak memiliki kolom `tenant_id` langsung. Alih-alih menambahkan redundansi kolom, isolasi tenant ditegakkan secara aman melalui relasi `Portfolio.joins(:session).where(sessions: { tenant_id: current_tenant_id })`.
+   Tabel `portfolios` tidak memiliki kolom `tenant_id` langsung. Alih-alih menambahkan redundansi kolom, isolasi tenant ditegakkan secara aman melalui relasi `Portfolio.joins(:session).where(sessions: { tenant_id: current_tenant_id })` yang kini mengamankan seluruh aksi portofolio dan Fit/Gap.
 
 ### B. AI Verification Moments (Dokumentasi Kasus Nyata)
 1. **Kasus Multi-Tenant Scoping pada Endpoint Publik Kandidat**:
@@ -205,9 +210,11 @@ Pengujian regresi terkontrol dieksekusi pada backend dan frontend untuk membukti
 2. **GAP-06 (Asesmen Tanpa Skill Diizinkan — P2)**:
    Saat ini form pembuatan asesmen dapat disimpan tanpa memilih minimal satu skill. *Mitigasi mendatang*: Menambahkan validasi `validates :skills, presence: true, length: { minimum: 1 }` pada model `Assessment`.
 3. **Pencabutan Persetujuan Data (*Consent Revocation*)**:
-   Implementasi saat ini mencatat pemberian izin (*opt-in*). Hak penarikan kembali persetujuan (*opt-out*) sesuai UU PDP Pasal 40 belum memiliki endpoint khusus dan dapat diajukan kandidat secara manual ke tim HR.
-4. **Latency Koneksi WebSocket Audio Eksternal**:
-   Kecepatan respon suara bergantung pada konektivitas ke Gemini Live API. Reconnection ring buffer 120 detik telah diterapkan untuk mitigasi jaringan tidak stabil.
+   Implementasi saat ini mencatat pemberian izin (*opt-in*). Hak penarikan kembali persetujuan (*opt-out*) sesuai UU PDP Pasal 40 belum memiliki antarmuka mandiri bagi kandidat dan ditangani melalui kanal manual HR.
+4. **Grace Period Koneksi WebSocket Audio Eksternal**:
+   Durasi `BROWSER_GRACE_PERIOD` 120 detik diterapkan pada `AudioWebSocketMiddleware` untuk menjaga sesi AI Gemini tetap aktif saat kandidat me-refresh browser atau mengalami *network hiccup* singkat, sebelum sesi diakhiri secara anggun (*graceful shutdown*).
+5. **Cakupan Pengujian Keamanan Aplikasi Menyeluruh**:
+   Pengujian IDOR yang dilakukan berfokus penuh pada vertical slice portofolio, sesi, dan Fit/Gap yang diaudit. Rute warisan lainnya di luar scope ini tidak diklaim bebas celah tanpa pengujian penetrasi menyeluruh di masa mendatang.
 
 ---
 

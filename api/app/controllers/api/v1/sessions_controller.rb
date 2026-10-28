@@ -164,6 +164,10 @@ module Api
           return json_error("Invalid or expired invite token", :not_found)
         end
 
+        if session.ended?
+          return json_error("Session has already ended", :unprocessable_entity)
+        end
+
         version = params.dig(:consent, :consent_version).presence || 'v1.0-2026'
         session.update!(
           consented_at:    Time.current,
