@@ -7,6 +7,12 @@ Dokumen ini membantu mengerjakan case study `rakamindev/ai-interview-platform` s
 - `PRD.md` — konteks produk, tujuan, ruang lingkup, pengguna, risiko, dan definisi keberhasilan.
 - `UI-GUIDELINE.md` — panduan kualitas UI/UX tanpa mengasumsikan desain ulang total.
 - `IMPLEMENTATION_PLAN.md` — tahapan kerja, checkpoint, bukti yang perlu dikumpulkan, dan acceptance gates.
+- `ENVIRONMENT_SETUP.md` — panduan audit, konfigurasi, dan verifikasi runtime/tools sistem.
+- `PRODUCT_DOMAIN_IMMERSION.md` — pemetaan alur produk, persona, kepatuhan UU PDP, dan data sensitif.
+- `AUDIT_GAP_ANALYSIS.md` — hasil audit end-to-end, verifikasi anomali, dan matriks temuan GAP-01 s/d GAP-08.
+- `SOLUTION_DESIGN.md` — rancangan solusi teknis, trade-offs, strategi testing, dan acceptance criteria Fase 3.
+- `IMPLEMENTATION_REPORT.md` — laporan implementasi kode, hasil migrasi, eksekusi test, dan bukti verifikasi Fase 4.
+- `SEEDED_FAULT_AI_VERIFICATION.md` — bukti pengujian seeded fault test (backend & frontend) serta catatan AI verification moment Fase 5.
 - `AGENTS.md` — aturan wajib bagi AI coding agent dan developer.
 - `EXECUTION_PROMPT.md` — prompt utama untuk menjalankan workflow bersama coding agent.
 
